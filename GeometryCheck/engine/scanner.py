@@ -13,11 +13,23 @@ ATTR_GROUP = 'GeometryCheck'  # ignore marks live as attributes on the entities,
 class Ctx:
     """What a check sees: the design, the sketches in scope, its params, and unit/space helpers."""
 
-    def __init__(self, design, sketches):
+    def __init__(self, design, sketches, settings):
         self.design = design
         self.sketches = sketches
+        self.settings = settings
         self.params = {}
         self._occ = {}
+
+    def params_for(self, check_id):
+        """Effective params of any check: its defaults overlaid with the user's settings. Lets one check
+        reason about another's thresholds (A1 hands borderline points to A9's ACTUAL tolerance, so no
+        gap ever falls between the two or gets reported twice)."""
+        check = registry.by_id(check_id)
+        cfg = self.settings.get(check_id, {})
+        return {k: type(spec[0])(cfg.get(k, spec[0])) for k, spec in getattr(check, 'params', {}).items()}
+
+    def check_enabled(self, check_id):
+        return self.settings.get(check_id, {}).get('enabled', True)
 
     def to_world(self, sketch, point):
         """Sketch-space Point3D (cm) -> root-context [x, y, z] (cm)."""
@@ -42,14 +54,13 @@ def all_sketches(design):
 
 
 def scan(design, settings, sketches=None):
-    ctx = Ctx(design, all_sketches(design) if sketches is None else sketches)
+    ctx = Ctx(design, all_sketches(design) if sketches is None else sketches, settings)
     findings = []
     for check in sorted(registry.CHECKS, key=lambda c: c.category != 'sketch'):  # sketch (upstream) first
-        cfg = settings.get(check.id, {})
-        if not cfg.get('enabled', True):
+        if not ctx.check_enabled(check.id):
             continue
         try:  # a bad hand-edited setting fails this check only, like a crash would
-            ctx.params = {k: type(spec[0])(cfg.get(k, spec[0])) for k, spec in getattr(check, 'params', {}).items()}
+            ctx.params = ctx.params_for(check.id)
             findings += check.detect(ctx)
         except Exception as e:  # one broken check must not hide the others' results
             findings.append(Finding(check.id, 'error', f'{check.name} could not run: {e}', [], None))

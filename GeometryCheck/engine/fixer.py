@@ -10,6 +10,10 @@ from . import scanner
 
 def apply_and_verify(design, finding, settings):
     """Returns (ok, message). ok=False means the caller must roll back."""
+    # Contract: every fix-carrying finding is a sketch finding whose entities live in one sketch.
+    # Body-check fixes, when they exist, will need their own verification scope here.
+    if not finding.entities or not hasattr(finding.entities[0], 'parentSketch'):
+        return False, 'This fix has no sketch to verify against; nothing was changed.'
     sketch = finding.entities[0].parentSketch
     before = scanner.scan(design, settings, [sketch])
     broken_before = _broken_features(design)

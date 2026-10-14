@@ -186,6 +186,30 @@ def fix_cases(app, scanner, fixer):
     return failures
 
 
+def a1_a9_boundary_case(app, scanner):
+    """A borderline gap is owned by exactly one check, whatever the user does to A9's tolerance."""
+    ok = True
+    for label, settings, expect in (
+        ('A9 defaults', {}, {'A1': 0, 'A9': 1}),
+        ('A9 tightened below the gap', {'A9': {'gap_mm': 0.01, 'gap_pct': 0.001}}, {'A1': 2, 'A9': 0}),
+        ('A9 disabled', {'A9': {'enabled': False}}, {'A1': 2, 'A9': 0}),
+    ):
+        doc = app.documents.add(adsk.core.DocumentTypes.FusionDesignDocumentType)
+        design = adsk.fusion.Design.cast(app.activeProduct)
+        sk = design.rootComponent.sketches.add(design.rootComponent.xYConstructionPlane)
+        lines = sk.sketchCurves.sketchLines
+        a = lines.addByTwoPoints(P(0, 0, 0), P(4, 0, 0))          # 0.05 mm gap pair, far ends closed,
+        b = lines.addByTwoPoints(P(4.005, 0, 0), P(4, 3, 0))      # so the gap is the only loose point
+        lines.addByTwoPoints(b.endSketchPoint, a.startSketchPoint)
+        found = scanner.scan(design, settings, [sk])
+        got = {c: sum(1 for f in found if f.check_id == c) for c in ('A1', 'A9')}
+        case_ok = got == expect
+        ok = ok and case_ok
+        print(f"{'PASS' if case_ok else 'FAIL'} A1/A9 boundary, {label}: {got} expected {expect}")
+        doc.close(False)
+    return ok
+
+
 def ignore_case(app, scanner):
     """Ignore marks: persist through rescans, only hide the marked finding, and restore cleanly."""
     doc = app.documents.add(adsk.core.DocumentTypes.FusionDesignDocumentType)
@@ -233,6 +257,8 @@ def run(_context):
     failures += fix_cases(app, scanner, fixer)
     if not ignore_case(app, scanner):
         failures.append('ignore/restore')
+    if not a1_a9_boundary_case(app, scanner):
+        failures.append('A1/A9 boundary')
 
     if failures:
         raise AssertionError(f'Fixture failures: {failures}. Scratch design left open for inspection.')

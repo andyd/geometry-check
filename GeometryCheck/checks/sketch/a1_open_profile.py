@@ -28,11 +28,15 @@ def detect(ctx):
         coords = {k: (sp.geometry.x, sp.geometry.y, curves) for k, (sp, curves) in enumerate(points)}
         xs, ys = [c[0] for c in coords.values()], [c[1] for c in coords.values()]
         diag = math.hypot(max(xs) - min(xs), max(ys) - min(ys))
-        # ponytail: A9's *default* tolerance, not the user's setting; keeps the checks decoupled and only
-        # shifts which check reports a borderline point
-        near_eps = max(a9.params['gap_mm'][0] / 10.0, a9.params['gap_pct'][0] / 100.0 * diag, 1e-9)
-        near = {k for pair in a9.hairline_pairs(coords, near_eps, a9._join_groups(sketch, points, by_loc),
-                                               lengths) for k in pair}
+        if ctx.check_enabled('A9'):
+            # A9's ACTUAL tolerance decides which check owns a borderline point: never both, never neither
+            g = ctx.params_for('A9')
+            near_eps = max(g['gap_mm'] / 10.0, g['gap_pct'] / 100.0 * diag, 1e-9)
+            near = {k for pair in a9.hairline_pairs(coords, near_eps,
+                                                    a9._join_groups(sketch, points, by_loc), lengths)
+                    for k in pair}
+        else:
+            near = set()  # A9 is off: nobody else reports hairline pairs, so their endpoints are open here
         constrained = set()  # any Coincident touching a point counts as connected (incl. point-on-curve)
         for c in sketch.geometricConstraints:
             if c.objectType != a9.COINCIDENT:
