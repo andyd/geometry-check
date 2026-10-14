@@ -1,0 +1,24 @@
+name: Experimental fix went wrong
+description: A Fix did something unexpected, or was undone when it shouldn't have been.
+labels: [alpha-feedback, fix-failed]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Geometry Check version
+    validations:
+      required: true
+  - type: textarea
+    id: finding
+    attributes:
+      label: The finding you fixed
+      description: Paste its message.
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: What happened
+      description: The message the panel showed, and what changed in your sketch (or didn't).
+    validations:
+      required: true

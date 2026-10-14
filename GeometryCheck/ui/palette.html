@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  :root { --fg:#1f2328; --muted:#656d76; --line:#d8dee4; --bg:#fff; --hover:#f3f5f7; --active:#e7f0ff;
+          --error:#c62828; --warning:#b26a00; --info:#1565c0; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:13px/1.4 -apple-system, "Segoe UI", sans-serif; color:var(--fg); background:var(--bg); }
+  header { position:sticky; top:0; background:var(--bg); border-bottom:1px solid var(--line); padding:10px 12px 0; }
+  .row { display:flex; align-items:center; gap:8px; }
+  h1 { font-size:14px; margin:0; flex:1; }
+  .version { font-weight:400; font-size:11px; color:var(--muted); }
+  button { font:inherit; padding:4px 12px; border:1px solid var(--line); border-radius:4px; background:#f6f8fa; cursor:pointer; }
+  button.primary { background:#0969da; border-color:#0969da; color:#fff; }
+  button:disabled { opacity:.6; cursor:default; }
+  button:focus-visible, .finding:focus-visible { outline:2px solid #0969da; outline-offset:-2px; }
+  nav { display:flex; gap:16px; margin-top:8px; }
+  nav button { border:0; background:none; padding:6px 0; border-bottom:2px solid transparent; border-radius:0; color:var(--muted); }
+  nav button[aria-selected=true] { color:var(--fg); border-bottom-color:#0969da; }
+  main { padding:8px 12px 16px; }
+  .summary { color:var(--muted); margin:4px 0 8px; }
+  .error-box { background:#fdecea; color:var(--error); padding:8px; border-radius:4px; white-space:pre-wrap; font-size:12px; margin-bottom:8px; }
+  h2 { font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); margin:14px 0 4px; }
+  h3 { font-size:12px; margin:10px 0 4px; }
+  .finding { display:flex; gap:8px; padding:6px; border-radius:4px; cursor:pointer; }
+  .finding:hover { background:var(--hover); }
+  .finding.active { background:var(--active); }
+  .finding.static { cursor:default; opacity:.65; }
+  .badge { flex:none; height:18px; padding:0 6px; border-radius:9px; font-size:10px; font-weight:600; line-height:18px; color:#fff; text-transform:uppercase; }
+  .badge.error { background:var(--error); } .badge.warning { background:var(--warning); } .badge.info { background:var(--info); }
+  .where { color:var(--muted); font-size:11px; }
+  .check { border:1px solid var(--line); border-radius:6px; padding:8px 10px; margin:8px 0; }
+  .check label { display:flex; align-items:center; gap:6px; }
+  .param { display:flex; justify-content:space-between; align-items:center; margin-top:6px; padding-left:22px; color:var(--muted); }
+  .param { flex-wrap:wrap; gap:4px; }
+  .param input[type=number] { width:64px; font:inherit; padding:2px 4px; }
+  .param select { font:inherit; }
+  .slider { display:flex; align-items:center; gap:6px; }
+  .slider input[type=range] { width:110px; }
+  .empty { color:var(--muted); padding:16px 0; text-align:center; }
+  .notice { background:#e6f4ea; color:#1e6b34; padding:8px; border-radius:4px; font-size:12px; margin-bottom:8px; }
+  .experimental { background:#fff4ce; color:#7a4d00; padding:8px; border-radius:4px; font-size:12px; margin-bottom:8px; }
+  .fix, .ignore { flex:none; align-self:center; padding:2px 10px; font-size:12px; }
+  .fix { margin-left:auto; }
+  .finding .ignore:first-of-type { margin-left:auto; }
+  .finding.dim { opacity:.55; }
+  .linkish { border:0; background:none; padding:0; color:#0969da; text-decoration:underline; cursor:pointer; font-size:inherit; }
+  .mode label { display:flex; align-items:flex-start; gap:6px; margin:4px 0; }
+  .mode .warn { color:#7a4d00; font-size:12px; margin:6px 0 0 22px; }
+  footer { display:flex; gap:12px; padding:8px 12px 12px; border-top:1px solid var(--line); font-size:12px; }
+  footer button { border:0; background:none; padding:0; color:#0969da; text-decoration:underline; }
+</style>
+</head>
+<body>
+<header>
+  <div class="row">
+    <h1>Geometry Check <span id="version" class="version"></span></h1>
+    <button class="primary" id="scan">Scan</button>
+  </div>
+  <nav role="tablist">
+    <button role="tab" id="tab-results" aria-selected="true">Results</button>
+    <button role="tab" id="tab-settings" aria-selected="false">Settings</button>
+  </nav>
+</header>
+<main>
+  <div id="experimental" class="experimental" role="status" hidden>Experimental fixes are on. They are untested and change your sketch. Each fix is checked and undone automatically if it causes a problem; Ctrl+Z undoes it too. Save your design first.</div>
+  <div id="notice" class="notice" role="status" hidden></div>
+  <div id="error" class="error-box" hidden></div>
+  <section id="results"></section>
+  <section id="settings" hidden></section>
+</main>
+<footer>
+  <span class="where">Alpha feedback:</span>
+  <button id="feedback">Send feedback</button>
+  <button id="github">Report on GitHub</button>
+</footer>
+<script>
+let state = null;
+let view = 'results';
+let showIgnored = false;
+const SEV_ORDER = { error: 0, warning: 1, info: 2 };
+const CATEGORIES = [['sketch', 'Sketch'], ['body', 'Body']];  // sketch findings first: they cause body failures
+
+function el(tag, attrs, ...kids) {
+  const n = document.createElement(tag);
+  Object.entries(attrs || {}).forEach(([k, v]) => k.startsWith('on') ? n.addEventListener(k.slice(2), v) : n.setAttribute(k, v));
+  kids.flat().forEach(k => n.append(k));
+  return n;
+}
+
+function send(action, data) {
+  if (!window.adsk) return Promise.resolve(null);
+  return adsk.fusionSendData(action, JSON.stringify(data || {})).then(raw => {
+    const reply = raw ? JSON.parse(raw) : {};
+    showError(reply.error);
+    if (reply.checks) render(reply);
+    return reply;
+  }).catch(e => { showError(String(e)); return { error: String(e) }; });
+}
+
+// Python tracebacks end with the actual error line; show that, keep the full trace in the console
+function showError(msg) {
+  const box = document.getElementById('error');
+  box.hidden = !msg;
+  if (msg && msg.includes('Traceback')) {
+    console.error(msg);
+    msg = 'Something went wrong: ' + msg.trim().split('\n').pop();
+  }
+  box.textContent = msg || '';
+}
+
+function setView(v) {
+  view = v;
+  ['results', 'settings'].forEach(name => {
+    document.getElementById(name).hidden = name !== v;
+    document.getElementById('tab-' + name).setAttribute('aria-selected', name === v);
+  });
+}
+
+function render(s) {
+  state = s;
+  document.getElementById('version').textContent = s.version ? `v${s.version} ${s.stage || ''}` : '';
+  document.getElementById('experimental').hidden = s.mode !== 'experimental';
+  const notice = document.getElementById('notice');
+  notice.hidden = !s.notice;
+  notice.textContent = s.notice || '';
+  if (s.view) setView(s.view);
+  renderResults();
+  renderSettings();
+}
+
+function renderResults() {
+  const root = document.getElementById('results');
+  root.replaceChildren();
+  if (state.scanned === null) {
+    root.append(el('p', { class: 'empty' }, 'Click Scan to check every sketch in this design.'));
+    return;
+  }
+  const all = state.findings;
+  const nIgnored = all.filter(x => x.ignored).length;
+  const f = showIgnored ? all : all.filter(x => !x.ignored);
+  const live = all.filter(x => !x.ignored);
+  const counts = ['error', 'warning', 'info'].map(sev => [sev, live.filter(x => x.severity === sev).length]).filter(([, n]) => n);
+  const where = `${state.scanned} sketch${state.scanned === 1 ? '' : 'es'}`;
+  const summary = el('p', { class: 'summary' }, live.length
+    ? `${live.length} finding${live.length === 1 ? '' : 's'} in ${where}: ` + counts.map(([sev, n]) => `${n} ${sev}${n === 1 ? '' : 's'}`).join(', ')
+    : `No issues found in ${where}.`);
+  if (nIgnored) {
+    const toggle = el('button', { class: 'linkish' }, showIgnored ? 'hide' : 'show');
+    toggle.addEventListener('click', () => { showIgnored = !showIgnored; renderResults(); });
+    summary.append(` · ${nIgnored} ignored (`, toggle, ')');
+  }
+  root.append(summary);
+  for (const [cat, title] of CATEGORIES) {
+    const checks = state.checks.filter(c => c.category === cat && f.some(x => x.check_id === c.id));
+    if (!checks.length) continue;
+    root.append(el('h2', {}, title));
+    for (const c of checks) {
+      const items = f.filter(x => x.check_id === c.id).sort((a, b) => SEV_ORDER[a.severity] - SEV_ORDER[b.severity]);
+      root.append(el('h3', {}, `${c.id} · ${c.name} (${items.length})`));
+      items.forEach(x => root.append(findingRow(x)));
+    }
+  }
+}
+
+// small action button on a finding row that talks to Python and disables itself while busy
+function actionButton(label, busy, action, x, title) {
+  const btn = el('button', { class: label === 'Fix' ? 'fix' : 'ignore', title }, label);
+  btn.addEventListener('click', e => {
+    e.stopPropagation();
+    btn.disabled = true;
+    btn.textContent = busy;
+    send(action, { key: x.key }).then(r => { if (!r || r.error) { btn.disabled = false; btn.textContent = label; } });
+  });
+  btn.addEventListener('keydown', e => e.stopPropagation());
+  return btn;
+}
+
+function findingRow(x) {
+  const attrs = x.locatable ? { class: 'finding', role: 'button', tabindex: 0 } : { class: 'finding static', title: 'Nothing to locate' };
+  const row = el('div', attrs,
+    el('span', { class: 'badge ' + x.severity }, x.severity),
+    el('div', {}, el('div', {}, x.message), x.where ? el('div', { class: 'where' }, x.where) : ''));
+  if (x.ignored) {
+    row.classList.add('dim');
+    row.append(actionButton('Restore', 'Restoring…', 'restore', x, 'Show this finding in scans again'));
+  } else {
+    if (state.mode === 'experimental' && x.fixable) {
+      row.append(actionButton('Fix', 'Fixing…', 'fix', x,
+        'Experimental: apply and verify a fix (undone automatically if it causes a problem)'));
+    }
+    row.append(actionButton('Ignore', 'Ignoring…', 'ignore', x,
+      'This is intentional: hide it from every future scan. Saved in the design file; restore it any time from "show ignored".'));
+  }
+  if (x.locatable) {
+    const go = () => {
+      document.querySelectorAll('.finding.active').forEach(n => n.classList.remove('active'));
+      row.classList.add('active');
+      send('locate', { key: x.key }).then(r => { if (r && r.error) row.classList.remove('active'); });
+    };
+    row.addEventListener('click', go);
+    row.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
+  }
+  return row;
+}
+
+function renderSettings() {
+  const root = document.getElementById('settings');
+  root.replaceChildren();
+  const radio = (value, text) => {
+    const r = el('input', { type: 'radio', name: 'mode', value });
+    r.checked = (state.mode || 'detect') === value;
+    return el('label', {}, r, el('span', {}, text));
+  };
+  root.append(el('div', { class: 'check mode' },
+    el('div', {}, el('strong', {}, 'Mode')),
+    radio('detect', 'Detect only: finds problems, never changes your design'),
+    radio('experimental', 'Experimental fixes: adds a Fix button to findings'),
+    el('div', { class: 'warn' }, 'Experimental fixes are untested. They add constraints, which can move geometry. ' +
+      'Each fix is verified and undone automatically if it causes a problem. Save your design before using them.')));
+  for (const c of state.checks) {
+    root.append(el('div', { class: 'check' },
+      el('label', {}, checkbox(c), `${c.id} · ${c.name}`, el('span', { class: 'badge ' + c.severity, style: 'margin-left:auto' }, c.severity)),
+      c.params.map(p => el('label', { class: 'param' }, p.label, control(c, p)))));
+  }
+  root.append(el('div', { class: 'row' }, el('button', { class: 'primary', onclick: saveSettings }, 'Save'), el('span', { id: 'saved', class: 'where' })));
+}
+
+// control: null -> number box; [min, max, step] -> slider + number box; [[value, label], ...] -> dropdown
+function control(c, p) {
+  const data = { 'data-check': c.id, 'data-key': p.key };
+  if (p.control && Array.isArray(p.control[0])) {
+    const sel = el('select', data, p.control.map(([v, label]) => el('option', { value: v }, label)));
+    sel.value = p.value;
+    return sel;
+  }
+  const num = el('input', { type: 'number', step: 'any', min: '0', value: p.value, 'aria-label': p.label, ...data });
+  if (!p.control) return num;
+  const [min, max, step] = p.control;
+  const slider = el('input', { type: 'range', min, max, step, value: p.value, 'aria-label': p.label });
+  slider.addEventListener('input', () => { num.value = slider.value; });
+  num.addEventListener('input', () => { slider.value = num.value; });
+  return el('span', { class: 'slider' }, slider, num);
+}
+
+function checkbox(c) {
+  const box = el('input', { type: 'checkbox', 'data-check': c.id, 'data-key': 'enabled' });
+  box.checked = c.enabled;
+  return box;
+}
+
+function saveSettings() {
+  document.getElementById('saved').textContent = '';
+  const out = {}, bad = [];
+  document.querySelectorAll('#settings [data-key]').forEach(i => {
+    const cfg = out[i.dataset.check] = out[i.dataset.check] || {};
+    if (i.type === 'checkbox') cfg.enabled = i.checked;
+    else if (i.tagName === 'SELECT') cfg[i.dataset.key] = i.value;
+    else if (i.value !== '' && Number(i.value) >= 0) cfg[i.dataset.key] = Number(i.value);
+    else bad.push(`${i.dataset.check} ${i.getAttribute('aria-label') || i.dataset.key}`);
+  });
+  if (bad.length) { showError('Not saved. These need a number of 0 or more: ' + bad.join('; ')); return; }
+  out.mode = (document.querySelector('#settings input[name=mode]:checked') || {}).value || 'detect';
+  send('save_settings', { settings: out }).then(r => {
+    if (r && !r.error) { setView('settings'); document.getElementById('saved').textContent = 'Saved. Scan again to apply.'; }
+  });
+}
+
+window.fusionJavaScriptHandler = {
+  handle(action, data) {
+    if (action === 'state') { const s = JSON.parse(data); showError(s.error || null); render(s); }
+    return 'OK';
+  }
+};
+
+document.getElementById('scan').addEventListener('click', () => {
+  const btn = document.getElementById('scan');
+  btn.disabled = true;
+  btn.textContent = 'Scanning…';
+  send('scan').then(() => setView('results')).finally(() => { btn.disabled = false; btn.textContent = 'Scan'; });
+});
+document.getElementById('tab-results').addEventListener('click', () => setView('results'));
+document.getElementById('feedback').addEventListener('click', () => send('feedback', { kind: 'form' }));
+document.getElementById('github').addEventListener('click', () => send('feedback', { kind: 'github' }));
+document.getElementById('tab-settings').addEventListener('click', () => setView('settings'));
+
+// Fusion injects window.adsk shortly after load; pull the current state once it exists.
+(function ready(tries) {
+  if (window.adsk) send('ready');
+  else if (tries > 0) setTimeout(() => ready(tries - 1), 100);
+})(50);
+</script>
+</body>
+</html>

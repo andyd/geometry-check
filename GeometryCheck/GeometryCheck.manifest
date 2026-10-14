@@ -1,0 +1,13 @@
+{
+    "autodeskProduct": "Fusion",
+    "type": "addin",
+    "id": "56ccf89e-f1cf-4882-b671-252a2540992f",
+    "author": "Andy Dahley",
+    "description": {
+        "": "Finds slightly-wrong sketch and body geometry, explains it, and shows you where it is. Detect-only: never modifies your design."
+    },
+    "version": "0.6.0",
+    "runOnStartup": false,
+    "supportedOS": "windows|mac",
+    "editEnabled": true
+}

@@ -1,0 +1,29 @@
+name: False alarm or missed problem
+description: It flagged something that's fine, or missed something that's wrong.
+labels: [alpha-feedback, detection]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Geometry Check version
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Which?
+      options: [False alarm (flagged but fine), Missed problem (wrong but not flagged)]
+    validations:
+      required: true
+  - type: dropdown
+    id: check
+    attributes:
+      label: Check
+      options: [A8 Slightly-off right angles, A9 Hairline gaps, Not sure / other]
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: The finding's message (if any), what the geometry is meant to be, and your tolerance settings if you changed them.
+    validations:
+      required: true
